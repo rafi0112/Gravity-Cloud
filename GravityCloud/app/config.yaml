@@ -1,0 +1,9 @@
+model_list:
+  - model_name: gemma2:2b
+    litellm_params:
+      model: ollama/gemma2:2b
+      api_base: http://localhost:11434
+  - model_name: gemma2:2b
+    litellm_params:
+      model: ollama/gemma2:2b
+      api_base: http://100.86.201.32:11434
