@@ -32,7 +32,7 @@ def get_db():
         except Exception as e:
             raise HTTPException(
                 status_code=500, 
-                detail=f"Database Lock or Ollama Connection Failed. Solution: Delete './chroma_db' folder and restart. Error: {str(e)}"
+                detail=f"Database Lock or Ollama Connection Failed. Solution: Delete './chroma_db' folder. Error: {str(e)}"
             )
     return _vector_db
 
