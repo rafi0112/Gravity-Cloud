@@ -1,0 +1,63 @@
+{
+  "title": "Queue & Load Metrics",
+  "tags": ["queue", "load"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Pending",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "queue_pending",
+          "refId": "A",
+          "legendFormat": "Pending Jobs"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Requests",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "active_requests",
+          "refId": "A",
+          "legendFormat": "Active Requests"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Connected Devices",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "connected_devices",
+          "refId": "A",
+          "legendFormat": "Devices"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Queue Over Time",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "queue_pending",
+          "refId": "A",
+          "legendFormat": "Pending"
+        }
+      ]
+    }
+  ]
+}

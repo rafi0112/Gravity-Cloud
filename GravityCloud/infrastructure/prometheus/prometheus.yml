@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "gateway-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway-service:8000"]
+
+  - job_name: "queue-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["queue-service:8005"]
+
+  - job_name: "scheduler-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["scheduler-service:8004"]
+
+  - job_name: "ollama-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ollama-service:8001"]
+
+  # node exporter or other exporters can be added here
