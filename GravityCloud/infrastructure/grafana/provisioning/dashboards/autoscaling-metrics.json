@@ -1,0 +1,68 @@
+{
+  "title": "Autoscaling & Gateway Metrics",
+  "tags": ["autoscaling", "gateway"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Gateway Replicas",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "gateway_replicas",
+          "refId": "A",
+          "legendFormat": "Active Replicas"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Desired Replicas",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "desired_replicas",
+          "refId": "A",
+          "legendFormat": "Target Replicas"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Scheduler State",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "scheduler_state",
+          "refId": "A",
+          "legendFormat": "State"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Replica Count Over Time",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "gateway_replicas",
+          "refId": "A",
+          "legendFormat": "Current"
+        },
+        {
+          "expr": "desired_replicas",
+          "refId": "B",
+          "legendFormat": "Desired"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: gravity-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint:
+      - /bin/sh
+      - -c
+      - ollama serve & pid=$$!; sleep 8; ollama pull gemma2:2b; ollama pull nomic-embed-text; wait $$pid
+    healthcheck:
+      test: ["CMD-SHELL", "ollama show gemma2:2b >/dev/null 2>&1 && ollama show nomic-embed-text >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  ollama-service:
+    build:
+      context: ./services/ollama-service
+    container_name: gravity-ollama-service
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  embedding-service:
+    build:
+      context: ./services/embedding-service
+    container_name: gravity-embedding-service
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+
+  vector-service:
+    build:
+      context: ./services/vector-service
+    container_name: gravity-vector-service
+    depends_on:
+      embedding-service:
+        condition: service_started
+    environment:
+      EMBEDDING_SERVICE_URL: http://embedding-service:8003
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/vector-service/chroma_db:/app/chroma_db
+    restart: unless-stopped
+
+  scheduler-service:
+    build:
+      context: ./services/scheduler-service
+    container_name: gravity-scheduler-service
+    depends_on:
+      queue-service:
+        condition: service_started
+    environment:
+      COMPOSE_PROJECT_NAME: gravitycloud
+      QUEUE_SERVICE_URL: http://queue-service:8005
+      COMPOSE_WORKDIR: /workspace
+      TARGET_SERVICE_NAME: gateway-service
+      MIN_REPLICAS: 1
+      MID_REPLICAS: 2
+      MAX_REPLICAS: 3
+      COOLDOWN_SECONDS: 30
+      POLL_INTERVAL_SECONDS: 5
+    volumes:
+      - ./:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8004:8004"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: gravity-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  queue-service:
+    build:
+      context: ./services/queue-service
+    container_name: gravity-queue-service
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8005:8005"
+    restart: unless-stopped
+
+  gateway-service:
+    build:
+      context: ./services/gateway-service
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-service:
+        condition: service_started
+      embedding-service:
+        condition: service_started
+      vector-service:
+        condition: service_started
+      queue-service:
+        condition: service_started
+    environment:
+      OLLAMA_SERVICE_URL: http://ollama-service:8001
+      VECTOR_SERVICE_URL: http://vector-service:8002
+      EMBEDDING_SERVICE_URL: http://embedding-service:8003
+      QUEUE_SERVICE_URL: http://queue-service:8005
+      SCHEDULER_SERVICE_URL: http://scheduler-service:8004
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/').read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  gateway-lb:
+    build:
+      context: ./services/gateway-lb
+    container_name: gravity-gateway-lb
+    depends_on:
+      gateway-service:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: gravity-frontend
+    depends_on:
+      gateway-lb:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gravity-prometheus
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gravity-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./infrastructure/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./infrastructure/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infrastructure/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  redis_data:
+  grafana_data:
