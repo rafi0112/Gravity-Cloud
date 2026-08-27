@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Cpu, MemoryStick, Network, Waves, Server } from 'lucide-react';
-import { getNodes, getAutoscalingStatus } from '../services/api';
+import { Activity, Cpu, MemoryStick, Network, Waves, Server, Radio, Wifi, WifiOff, GitBranch } from 'lucide-react';
+import { getNodes, getAutoscalingStatus, getEdgeNodes } from '../services/api';
+
+// ─── Shared helpers ────────────────────────────────────────────────────────
 
 function MetricCard({ icon: Icon, label, value, sub }) {
   return (
@@ -40,6 +42,192 @@ function ServiceRow({ service }) {
   );
 }
 
+// ─── Edge Node Card ────────────────────────────────────────────────────────
+
+function EdgeNodeCard({ node, isLastSelected }) {
+  const isLocal = node.type === 'local';
+  const healthy = node.healthy;
+  const isActive = node.active_requests > 0;
+
+  // Border colour: selected = accent, healthy = green, offline = red
+  const borderColor = isLastSelected
+    ? 'rgba(var(--accent-rgb),0.6)'
+    : healthy
+    ? 'rgba(52,211,153,0.35)'
+    : 'rgba(248,113,113,0.4)';
+
+  const badgeBg = isLastSelected
+    ? 'rgba(var(--accent-rgb),0.15)'
+    : healthy
+    ? 'rgba(52,211,153,0.12)'
+    : 'rgba(248,113,113,0.12)';
+
+  const badgeColor = isLastSelected
+    ? 'var(--accent)'
+    : healthy
+    ? '#34d399'
+    : '#f87171';
+
+  return (
+    <div
+      className="rounded-2xl p-5 flex flex-col gap-3 transition-all duration-300"
+      style={{
+        background: 'var(--surface-200)',
+        border: `1.5px solid ${borderColor}`,
+        boxShadow: isLastSelected ? `0 0 18px rgba(var(--accent-rgb),0.12)` : 'none',
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isLocal
+            ? <Server size={15} style={{ color: 'var(--accent)' }} />
+            : <Radio size={15} style={{ color: healthy ? '#34d399' : '#f87171' }} />}
+          <span className="font-semibold text-sm text-[var(--text-primary)] uppercase tracking-wide">
+            {isLocal ? 'Local Node' : 'Remote Node'}
+          </span>
+        </div>
+        <span
+          className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full"
+          style={{ background: badgeBg, color: badgeColor }}
+        >
+          {healthy ? (isActive ? 'Active' : 'Healthy') : 'Offline'}
+        </span>
+      </div>
+
+      {/* Node ID & URL */}
+      <div>
+        <div className="text-xs text-[var(--text-muted)] uppercase tracking-[0.16em] mb-0.5">Node ID</div>
+        <div className="text-sm font-mono text-[var(--text-primary)]">{node.id}</div>
+      </div>
+      <div>
+        <div className="text-xs text-[var(--text-muted)] uppercase tracking-[0.16em] mb-0.5">Endpoint</div>
+        <div className="text-xs font-mono text-[var(--text-secondary)] break-all">{node.url}</div>
+      </div>
+
+      {/* Metrics row */}
+      <div className="flex gap-3 mt-1">
+        <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'var(--surface-100)' }}>
+          <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">Active Req</div>
+          <div className="text-xl font-semibold text-[var(--text-primary)]">{node.active_requests}</div>
+        </div>
+        <div className="flex-1 rounded-xl p-3 text-center" style={{ background: 'var(--surface-100)' }}>
+          <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">Status</div>
+          <div className={`text-sm font-semibold ${healthy ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {healthy ? <Wifi size={16} className="inline" /> : <WifiOff size={16} className="inline" />}
+          </div>
+        </div>
+      </div>
+
+      {/* Selected badge */}
+      {isLastSelected && (
+        <div
+          className="text-center text-xs font-semibold py-1.5 rounded-xl tracking-wider"
+          style={{ background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--accent)' }}
+        >
+          ✦ LAST REQUEST ROUTED HERE
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Edge Nodes Panel ──────────────────────────────────────────────────────
+
+function EdgeNodesPanel() {
+  const [edgeData, setEdgeData] = useState(null);
+
+  const refresh = useCallback(() => {
+    getEdgeNodes()
+      .then((r) => setEdgeData(r.data))
+      .catch(() => setEdgeData(null));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const timer = setInterval(refresh, 5000); // poll every 5 s
+    return () => clearInterval(timer);
+  }, [refresh]);
+
+  const nodes = edgeData?.nodes ?? [];
+  const selectedId = edgeData?.selected_node;
+  const reason = edgeData?.last_reason;
+  const mode = edgeData?.mode ?? 'single-node';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.0 }}
+      className="rounded-3xl p-5 mb-6"
+      style={{ background: 'var(--surface-100)', border: '1px solid var(--border)' }}
+    >
+      {/* Panel header */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <GitBranch size={16} style={{ color: 'var(--accent)' }} />
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Edge Inference Nodes</h2>
+            <span
+              className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full"
+              style={{
+                background: mode === 'multi-node' ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(156,163,175,0.14)',
+                color: mode === 'multi-node' ? 'var(--accent)' : 'var(--text-muted)',
+              }}
+            >
+              {mode}
+            </span>
+          </div>
+          <p className="text-sm text-[var(--text-muted)]">
+            Automatic routing — node selection is invisible to the user. This panel shows live state.
+          </p>
+        </div>
+        <button
+          onClick={refresh}
+          className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-xl transition-colors"
+          style={{ background: 'var(--surface-200)' }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {/* Node cards */}
+      {nodes.length === 0 ? (
+        <div className="text-sm text-[var(--text-muted)] px-4 py-3 rounded-xl" style={{ background: 'var(--surface-200)' }}>
+          No edge-node data available yet. Send a chat request to initialize.
+        </div>
+      ) : (
+        <div className={`grid gap-4 ${nodes.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 max-w-xs'}`}>
+          {nodes.map((node) => (
+            <EdgeNodeCard key={node.id} node={node} isLastSelected={node.id === selectedId} />
+          ))}
+        </div>
+      )}
+
+      {/* Last routing decision */}
+      {selectedId && (
+        <div
+          className="mt-4 rounded-2xl px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+          style={{ background: 'var(--surface-200)', border: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">Last Request Routed To</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)] font-mono">{selectedId}</div>
+          </div>
+          {reason && (
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">Reason</div>
+              <div className="text-xs text-[var(--text-secondary)]">{reason}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────
+
 export default function NodesPage() {
   const [nodes, setNodes] = useState(null);
   const [autoscaling, setAutoscaling] = useState(null);
@@ -68,6 +256,9 @@ export default function NodesPage() {
           <h1 className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-3">Service Health Overview</h1>
           <p className="text-[var(--text-secondary)] max-w-2xl">Live gateway metrics, service reachability, and node-level runtime health for the current microservice stack.</p>
         </motion.div>
+
+        {/* ── Edge Nodes Visualization (NEW) ── */}
+        <EdgeNodesPanel />
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           <MetricCard icon={Cpu} label="CPU" value={formatPercent(metrics.cpu_percent)} sub="Gateway host utilization" />

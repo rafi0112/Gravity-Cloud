@@ -126,6 +126,8 @@ services:
         condition: service_started
     environment:
       OLLAMA_SERVICE_URL: http://ollama-service:8001
+      LOCAL_OLLAMA_SERVICE_URL: http://ollama-service:8001
+      EDGE_NODE_2_URL: ${EDGE_NODE_2_URL:-}
       VECTOR_SERVICE_URL: http://vector-service:8002
       EMBEDDING_SERVICE_URL: http://embedding-service:8003
       QUEUE_SERVICE_URL: http://queue-service:8005

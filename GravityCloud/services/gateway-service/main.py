@@ -1,3 +1,4 @@
+import asyncio
 import os
 from pathlib import Path
 
@@ -24,11 +25,79 @@ PUBLIC_SERVICE_HOST = os.getenv("PUBLIC_SERVICE_HOST", "localhost")
 REQUEST_COUNTER = 0
 HTTP_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
+# ---------------------------------------------------------------------------
+# Minimal Edge-Node Manager (single-file, no extra dependencies)
+# ---------------------------------------------------------------------------
+
+_LOCAL_URL = os.getenv("LOCAL_OLLAMA_SERVICE_URL", OLLAMA_SERVICE_URL)
+_EDGE2_URL = os.getenv("EDGE_NODE_2_URL", "").strip()
+
+
+class _EdgeNode:
+    """Tiny data class tracking one ollama-service endpoint."""
+
+    def __init__(self, node_id: str, url: str):
+        self.node_id = node_id
+        self.url = url.rstrip("/")
+        self.healthy = True
+        self.active_requests = 0
+
+
+# Build node list from env vars (EDGE_NODE_2_URL is optional)
+_NODES: list[_EdgeNode] = [_EdgeNode("local", _LOCAL_URL)]
+if _EDGE2_URL:
+    _NODES.append(_EdgeNode("edge2", _EDGE2_URL))
+
+
+async def _check_node_health(node: _EdgeNode) -> None:
+    """Ping /health on the ollama-service; mark node healthy/unhealthy."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as c:
+            r = await c.get(f"{node.url}/health")
+            r.raise_for_status()
+        if not node.healthy:
+            print(f"[EdgeNode] {node.node_id} is back ONLINE ({node.url})")
+        node.healthy = True
+    except Exception as exc:
+        if node.healthy:
+            print(f"[EdgeNode] {node.node_id} UNHEALTHY ({node.url}): {exc}")
+        node.healthy = False
+
+
+async def _health_loop() -> None:
+    """Background task: check all configured nodes every 15 s."""
+    while True:
+        for n in _NODES:
+            await _check_node_health(n)
+        await asyncio.sleep(15)
+
+
+def _select_node() -> _EdgeNode:
+    """Return the healthy node with the fewest active requests."""
+    healthy = [n for n in _NODES if n.healthy]
+    if not healthy:
+        raise RuntimeError("No healthy inference nodes available")
+    return min(healthy, key=lambda n: n.active_requests)
+
+
+# In-memory record of the last /ask routing decision (no persistence needed)
+_LAST_NODE: dict = {"id": None, "reason": "no requests yet"}
+
+# ---------------------------------------------------------------------------
+
 app = FastAPI(
     title="Cloud Engine AI Gateway",
     description="Cloud Computing Lab Project\n\n B200305032 - Khandekar Rafiul Islam\n\nB200305049 - Md. Bayazid Sarkar Bijoy",
     version="4.0.0",
 )
+
+
+@app.on_event("startup")
+async def _startup_edge_nodes():
+    """Run an initial health check and start background health-polling."""
+    for n in _NODES:
+        await _check_node_health(n)
+    asyncio.create_task(_health_loop())
 
 # Prometheus metrics
 GATEWAY_REQUESTS_COUNTER = Counter("gravity_gateway_requests_total", "Total incoming gateway requests")
@@ -174,8 +243,9 @@ def _resolve_active_model(payload: dict) -> str:
 
 
 async def _ollama_model_status() -> dict:
+    # Use the local node URL (always available) for model status queries
     try:
-        payload = await _request_json("GET", f"{OLLAMA_SERVICE_URL}/models")
+        payload = await _request_json("GET", f"{_LOCAL_URL}/models")
     except Exception as exc:
         return {
             "active_model": DEFAULT_MODEL_NAME,
@@ -417,17 +487,27 @@ async def ask_post(request: Request, prompt: str = Body(..., media_type="text/pl
             system_instruction = "You are Cloud Engine AI. Answer based on your general knowledge."
             mode = "General Knowledge"
 
-        response = await _request_json(
-            "POST",
-            f"{OLLAMA_SERVICE_URL}/chat",
-            json={
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": prompt},
-                ],
-            },
-        )
+        # --- Edge-node routing: select best healthy node transparently ---
+        node = _select_node()
+        node.active_requests += 1
+        _LAST_NODE["id"] = node.node_id
+        _LAST_NODE["reason"] = "lowest active requests"
+        print(f"[EdgeNode] selected '{node.node_id}' ({node.url}) | active={node.active_requests}")
+        try:
+            response = await _request_json(
+                "POST",
+                f"{node.url}/chat",
+                json={
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": prompt},
+                    ],
+                },
+            )
+        finally:
+            node.active_requests -= 1
+        # --- End edge-node routing ---
 
         await _queue_complete(
             queue_job_id,
@@ -489,4 +569,27 @@ async def nodes_status():
         },
         "metrics": metrics,
         "services": list(services.values()),
+    }
+
+
+@app.get("/edge-nodes", tags=["Infrastructure"])
+async def edge_nodes_status():
+    """Return current state of all configured edge/inference nodes."""
+    last_id = _LAST_NODE.get("id")
+    node_list = [
+        {
+            "id": n.node_id,
+            "type": "local" if n.node_id == "local" else "remote",
+            "url": n.url,
+            "healthy": n.healthy,
+            "active_requests": n.active_requests,
+            "selected": n.node_id == last_id,
+        }
+        for n in _NODES
+    ]
+    return {
+        "nodes": node_list,
+        "selected_node": last_id,
+        "last_reason": _LAST_NODE.get("reason", "no requests yet"),
+        "mode": "multi-node" if len(_NODES) > 1 else "single-node",
     }

@@ -32,6 +32,7 @@ export const getHealth = () => api.get('/');
 export const getDbStatus = () => api.get('/db-status');
 export const clearDb = () => api.post('/clear-db');
 export const getNodes = () => api.get('/nodes');
+export const getEdgeNodes = () => api.get('/edge-nodes');
 export const getServicesStatus = () => api.get('/services-status');
 export const getAutoscalingStatus = () => api.get('/autoscaling-status');
 
